@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XM-AIChat</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .chat-container {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+            flex-wrap: wrap;
+        }
+
+        #userInput {
+            flex: 1;
+            min-width: 200px;
+            min-height: 80px; /* 设置最小高度 */
+            max-height: 200px; /* 设置最大高度 */
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 16px;
+            resize: vertical; /* 允许垂直方向调整大小 */
+            line-height: 1.5; /* 行高 */
+        }
+
+
+        button {
+            padding: 10px 20px;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        #sendButton {
+            background-color: #007bff;
+        }
+
+        #clearButton {
+            background-color: #dc3545;
+        }
+
+        #imageUploadButton {
+            background-color: #28a745;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #imageInput {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        #chatHistory {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 5px;
+            max-width: 100%;
+            word-wrap: break-word;
+        }
+
+        .user-message {
+            background-color: #e9ecef;
+            align-self: flex-end;
+        }
+
+        .gpt-message {
+            background-color: #f8f9fa;
+            align-self: flex-start;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            color: #666;
+        }
+
+        .image-preview {
+            max-width: 200px;
+            max-height: 200px;
+            margin: 10px 0;
+        }
+
+        #imagePreviewContainer {
+            display: none;
+            position: relative;
+        }
+
+        #removeImageButton {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background-color: rgba(220, 53, 69, 0.8);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+<h1>XM-AIChat</h1>
+<p>By @xm666</p>
+<p>特别鸣谢：@春江居士</p>
+<p>Powered by Claude-3.5-Sonnet</p>
+    <div class="chat-container">
+        <div class="input-container">
+            <textarea id="userInput" placeholder="Ask me everything..."></textarea>
+            <button id="sendButton">发送</button>
+            <button id="imageUploadButton">
+                上传图片
+                <input type="file" id="imageInput" accept="image/*">
+            </button>
+            <button id="clearButton">清除</button>
+            <select class="model-selector" id="modelSelect">
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-4o">gpt-4o</option>
+                <option value="gpt-4o-all">ChatGPT Plus</option>
+                <option value="chatgpt-4o-latest">chatgpt-4o-latest</option>
+            </select>
+        </div>
+        <div id="imagePreviewContainer">
+            <img id="imagePreview" class="image-preview">
+            <button id="removeImageButton">×</button>
+        </div>
+        <div class="loading">Loading...</div>
+        <hr>
+        <div id="chatHistory"></div>
+    </div>
+
+    <script>
+        const API_KEY = 'sk-Qzd7V5BD0WRpG4Xf7266916e67B14cF1B01552E0Cb6c5b6d';
+        const ModelID = document.getElementById('modelSelect').value;
+        const input = document.getElementById('userInput');
+        const sendButton = document.getElementById('sendButton');
+        const clearButton = document.getElementById('clearButton');
+        const imageInput = document.getElementById('imageInput');
+        const imagePreview = document.getElementById('imagePreview');
+        const imagePreviewContainer = document.getElementById('imagePreviewContainer');
+        const removeImageButton = document.getElementById('removeImageButton');
+        const chatHistory = document.getElementById('chatHistory');
+        const loadingDiv = document.querySelector('.loading');
+
+        let conversationHistory = [];
+        let currentImageData = null;
+
+        function addMessage(content, isUser, imageUrl = null) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : 'gpt-message'}`;
+            messageDiv.textContent = content;
+            
+            if (imageUrl) {
+                const image = document.createElement('img');
+                image.src = imageUrl;
+                image.className = 'image-preview';
+                messageDiv.appendChild(image);
+            }
+            
+            chatHistory.appendChild(messageDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        async function getGPTResponse(prompt, imageData) {
+            let messages = [...conversationHistory];
+            
+            if (imageData) {
+                messages.push({
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'text',
+                            text: prompt
+                        },
+                        {
+                            type: 'image_url',
+                            image_url: {
+                                url: imageData
+                            }
+                        }
+                    ]
+                });
+            } else {
+                messages.push({
+                    role: 'user',
+                    content: prompt
+                });
+            }
+
+            const response = await fetch('https://api.gptnb.ai/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${API_KEY}`
+                },
+                body: JSON.stringify({
+                    model: ModelID,
+                    messages: messages,
+                    max_tokens: 500
+                })
+            });
+
+            const data = await response.json();
+            return data.choices[0].message.content;
+        }
+
+        async function handleSend() {
+            const userPrompt = input.value.trim();
+            if (!userPrompt && !currentImageData) return;
+
+            addMessage(userPrompt, true, currentImageData);
+            
+            input.value = '';
+            sendButton.disabled = true;
+            loadingDiv.style.display = 'block';
+
+            try {
+                const answer = await getGPTResponse(userPrompt, currentImageData);
+                addMessage(answer, false);
+                
+                // 添加对话历史
+                if (currentImageData) {
+                    conversationHistory.push({
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: userPrompt },
+                            { type: 'image_url', image_url: { url: currentImageData } }
+                        ]
+                    });
+                } else {
+                    conversationHistory.push({
+                        role: 'user',
+                        content: userPrompt
+                    });
+                }
+                
+                conversationHistory.push({
+                    role: 'assistant',
+                    content: answer
+                });
+
+                // 清除图片预览
+                removeImage();
+            } catch (error) {
+                addMessage('发生错误，请稍后重试', false);
+            } finally {
+                sendButton.disabled = false;
+                loadingDiv.style.display = 'none';
+            }
+        }
+
+        function clearChat() {
+            chatHistory.innerHTML = '';
+            conversationHistory = [];
+            removeImage();
+        }
+
+        function removeImage() {
+            currentImageData = null;
+            imagePreviewContainer.style.display = 'none';
+            imagePreview.src = '';
+        }
+
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    currentImageData = e.target.result;
+                    imagePreview.src = currentImageData;
+                    imagePreviewContainer.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        removeImageButton.addEventListener('click', removeImage);
+        sendButton.addEventListener('click', handleSend);
+        clearButton.addEventListener('click', clearChat);
+
+      
+    </script>
+</body>
+</html>
